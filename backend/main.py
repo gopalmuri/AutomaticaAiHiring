@@ -29,9 +29,18 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 models.Base.metadata.create_all(bind=database.engine)
 
 # CORS
+# CORS Configuration
+frontend_url = os.getenv("FRONTEND_URL", "https://automatica-ai-hiring.vercel.app")
+origins = [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    frontend_url,
+    "https://automatica-ai-hiring.vercel.app" # Hardcoded fallback just in case
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
