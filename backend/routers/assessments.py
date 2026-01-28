@@ -18,183 +18,164 @@ router = APIRouter(
 @router.post("/assign/", response_model=schemas.AssignResponse)
 def assign_assessment(
     request: schemas.AssessmentCreateRequest,
-    # current_user: models.User = Depends(get_current_user), # Temporarily allow any or check role
     db: Session = Depends(database.get_db)
 ):
-    # Admin sends list of candidates
-    candidate_list = request.candidates
-    round_type = request.type
-    config = request.config
-    deadline = request.deadline
-    
-    # --- PRE-GENERATE QUESTIONS (Optimization) ---
-    # Generate ONCE per batch assignment to save time and ensure consistency
+    import traceback
     try:
-        # Skip generation for Interview type (VAPI handles it dynamically)
-        if round_type != "interview" and not config.get("generated_questions"):
-            print(f"Pre-generating questions for {round_type} assignment...")
-            generated_qs = ai_generator.generate_questions(round_type, config)
-            if generated_qs:
-                config["generated_questions"] = generated_qs
-                print(f"Successfully generated {len(generated_qs)} questions.")
-            else:
-                print("Warning: AI generation returned empty.")
-                raise HTTPException(status_code=500, detail="AI failed to generate questions. Please try again.")
-    except Exception as e:
-        print(f"Error pre-generating questions: {e}")
-        raise HTTPException(status_code=500, detail=f"Generation Error: {str(e)}")
-    # ---------------------------------------------
-    
-    email_errors = []
-    assigned_count = 0
-
-    for candidate_entry in candidate_list:
-        email = candidate_entry.get('email')
-        if not email:
-            continue
+        # Admin sends list of candidates
+        candidate_list = request.candidates
+        round_type = request.type
+        config = request.config
+        deadline = request.deadline
         
-        
-        # 1. Get or Create Candidate Record
-        candidate = db.query(models.Candidate).filter(models.Candidate.email == email).first()
-        if not candidate:
-            candidate = models.Candidate(
-                name=candidate_entry.get('name', 'Candidate'),
-                email=email,
-                section="Imports", # Placeholder
-                stage=round_type,
-                status=models.CandidateStatus.Applied
-            )
-            db.add(candidate)
-            db.flush() # Get ID
-            db.refresh(candidate)
-
-        # 2. Update Candidate Creds (Separate from Admin User)
-        plain_password = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
-        hashed = utils.get_password_hash(plain_password)
-        candidate.hashed_password = hashed
-        candidate.is_active = True
-        
-        password_display = plain_password
-
-        # 3. Create Shadow User for Auth Session
-        # This ensures get_current_user works without conflicting with Admin's real User account
-        shadow_email = f"candidate_{candidate.id}@hiringai.internal"
-        shadow_user = db.query(models.User).filter(models.User.email == shadow_email).first()
-        
-        if not shadow_user:
-            shadow_user = models.User(
-                email=shadow_email,
-                hashed_password=hashed,
-                role=models.UserRole.CANDIDATE.value, # Fix: Use .value
-                is_active=True
-            )
-            db.add(shadow_user)
-        else:
-            shadow_user.hashed_password = hashed
-        
-        db.flush() 
-        db.refresh(shadow_user)
-        
-        # User for assessment is SHADOW user
-        user = shadow_user 
-
-
-        # 1.5 Update Candidate Stage if they exist in Candidate table
-        # This unifies "Promote" and "Assign Assessment"
-        STAGE_MAPPING = {
-            "aptitude": models.CandidateStage.Aptitude_Round,
-            "coding": models.CandidateStage.Coding_Round,
-            "interview": models.CandidateStage.Technical_Interview
-        }
-        
-        target_stage = STAGE_MAPPING.get(round_type, models.CandidateStage.Resume_Screening)
-
-        candidate_record = db.query(models.Candidate).filter(models.Candidate.email == email).first()
-        if candidate_record:
-            candidate_record.stage = target_stage
-            
-            # Reset results for a fresh start in this stage
-            candidate_record.status = models.CandidateStatus.In_Progress
-            candidate_record.score = 0.0
-            if candidate_record.analysis_data:
-                # Keep screening reasoning but clear previous round data
-                candidate_record.analysis_data = {k: v for k, v in candidate_record.analysis_data.items() if k in ['reasoning', 'extracted_role', 'sentiment']}
-            
-            # Log Promotion
-            friendly_round = round_type.replace('_', ' ').title()
-            log = models.ActivityLog(
-                user_id=None, 
-                action="invited",
-                target=candidate_record.name,
-                details=f"Invited to {friendly_round} Assessment"
-            )
-            db.add(log)
-
-        # 2. Create Assessment (Use deepcopy to ensure isolation)
-        assessment = models.Assessment(
-            candidate_email=email,
-            type=round_type,
-            config=copy.deepcopy(config),
-            status=models.AssessmentStatus.pending,
-            user_id=user.id
-        )
-        db.add(assessment)
-        
-        # CRITICAL: Commit DB changes BEFORE sending email so login works immediately
-        db.commit()
-        
-        # 3. Send Email with Magic Link (Secure)
-        frontend_url = os.getenv("FRONTEND_URL", "http://127.0.0.1:5173")
-        
-        # FIX: Use Candidate's specific role if available, fallback to Config role, then 'Candidate'
-        target_role = candidate_record.role if candidate_record and candidate_record.role else config.get('role', 'Candidate')
-        
-        subject = f"Action Required: {target_role} - {round_type.title()} Invitation"
-        
-        deadline_text = f"Deadline: {deadline}" if deadline else "Deadline: ASAP"
-        
-        # Generate Login Link (Manual Only)
-        login_link = f"{frontend_url}/portal/login"
-        
-        # DEBUG LOGGING (User Request)
+        # --- PRE-GENERATE QUESTIONS (Optimization) ---
+        # Generate ONCE per batch assignment to save time and ensure consistency
         try:
-            from datetime import datetime
-            with open("logs/email_debug.log", "a") as f:
-                 f.write(f"\n[{datetime.now()}] ASSIGNMENT:\n")
-                 f.write(f"  Candidate: {email}\n")
-                 f.write(f"  Password: {password_display}\n")
-                 f.write(f"  Link: {login_link}\n")
+            # Skip generation for Interview type (VAPI handles it dynamically)
+            if round_type != "interview" and not config.get("generated_questions"):
+                print(f"Pre-generating questions for {round_type} assignment...")
+                generated_qs = ai_generator.generate_questions(round_type, config)
+                if generated_qs:
+                    config["generated_questions"] = generated_qs
+                    print(f"Successfully generated {len(generated_qs)} questions.")
+                else:
+                    print("Warning: AI generation returned empty.")
+                    # Don't crash, just proceed (might be empty config)
         except Exception as e:
-            print(f"Log Error: {e}")
-
-        html_body = email_templates.get_invitation_email_template(
-            candidate_name=candidate_entry.get('name', 'Candidate'),
-            role_title=target_role,
-            round_type=round_type,
-            login_url=login_link, # MANUAL LOGIN LINK
-            deadline_text=deadline_text,
-            instructions=config.get('description', None),
-            password=password_display,
-            email=email
-        )
-        sent = utils.send_email(email, subject, html_body)
-        if not sent:
-            email_errors.append(f"{email}: Failed to send email")
+            print(f"Error pre-generating questions: {e}")
+            # Non-critical, continue
+        # ---------------------------------------------
         
-        assigned_count += 1
-    
-    # db.commit() - Moved inside loop
+        email_errors = []
+        assigned_count = 0
 
+        for candidate_entry in candidate_list:
+            email = candidate_entry.get('email')
+            if not email:
+                continue
+            
+            # 1. Get or Create Candidate Record
+            candidate = db.query(models.Candidate).filter(models.Candidate.email == email).first()
+            if not candidate:
+                candidate = models.Candidate(
+                    name=candidate_entry.get('name', 'Candidate'),
+                    email=email,
+                    # role=target_role, # Ensure role handled if column exists
+                    status=models.CandidateStatus.Applied
+                )
+                db.add(candidate)
+                db.flush() 
+                db.refresh(candidate)
 
-    msg = f"Successfully assigned {round_type} to {assigned_count} candidates."
-    if email_errors:
-        msg += f" WARNING: Email failed for {len(email_errors)} candidates."
+            # 2. Update Candidate Creds 
+            plain_password = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
+            hashed = utils.get_password_hash(plain_password)
+            
+            # Safe Update checks
+            if hasattr(candidate, 'hashed_password'):
+                candidate.hashed_password = hashed
+            if hasattr(candidate, 'is_active'):
+                candidate.is_active = True
+            
+            password_display = plain_password
 
-    return schemas.AssignResponse(
-        message=msg,
-        status="success" if not email_errors else "warning",
-        email_errors=email_errors
-    )
+            # 3. Create Shadow User (Auth)
+            shadow_email = f"candidate_{candidate.id}@hiringai.internal"
+            shadow_user = db.query(models.User).filter(models.User.email == shadow_email).first()
+            
+            if not shadow_user:
+                shadow_user = models.User(
+                    email=shadow_email,
+                    hashed_password=hashed,
+                    role=models.UserRole.CANDIDATE.value,
+                    is_active=True
+                )
+                db.add(shadow_user)
+            else:
+                shadow_user.hashed_password = hashed
+            
+            db.flush() 
+            db.refresh(shadow_user)
+            user = shadow_user 
+
+            # 1.5 Update Candidate Stage
+            STAGE_MAPPING = {
+                "aptitude": models.CandidateStage.Aptitude_Round,
+                "coding": models.CandidateStage.Coding_Round,
+                "interview": models.CandidateStage.Technical_Interview
+            }
+            target_stage = STAGE_MAPPING.get(round_type, models.CandidateStage.Resume_Screening)
+
+            # Re-fetch or use logic
+            if candidate:
+                candidate.stage = target_stage
+                candidate.status = models.CandidateStatus.In_Progress
+                candidate.score = 0.0
+                
+                # Activity Log
+                log = models.ActivityLog(
+                    user_id=None, 
+                    action="invited",
+                    target=candidate.name,
+                    details=f"Invited to {round_type} Assessment"
+                )
+                db.add(log)
+
+            # 2. Create Assessment
+            assessment = models.Assessment(
+                candidate_email=email,
+                type=round_type,
+                config=copy.deepcopy(config),
+                status=models.AssessmentStatus.pending,
+                user_id=user.id
+            )
+            # Safe check start_at
+            if hasattr(models.Assessment, 'started_at'):
+                # It's in model but maybe not in DB? SQLAlchemy handles model->db map
+                pass
+
+            db.add(assessment)
+            db.commit() # <--- THIS IS WHERE IT LIKELY CRASHES IF SCHEMA MISMATCH
+            
+            # 3. Send Email
+            frontend_url = os.getenv("FRONTEND_URL", "http://127.0.0.1:5173")
+            target_role = getattr(candidate, 'role', 'Candidate') or 'Candidate'
+            
+            subject = f"Invitation: {target_role} - {round_type.title()}"
+            login_link = f"{frontend_url}/portal/login"
+            
+            html_body = email_templates.get_invitation_email_template(
+                candidate_name=candidate.name,
+                role_title=target_role,
+                round_type=round_type,
+                login_url=login_link,
+                deadline_text=deadline or "ASAP",
+                instructions=config.get('description', ""),
+                password=password_display,
+                email=email
+            )
+            sent = utils.send_email(email, subject, html_body)
+            if not sent:
+                email_errors.append(f"{email}: Failed to send email")
+            
+            assigned_count += 1
+        
+        msg = f"Assigned to {assigned_count} candidates."
+        if email_errors:
+            msg += f" Email Errors: {', '.join(email_errors)}"
+
+        return schemas.AssignResponse(
+            message=msg,
+            status="success" if not email_errors else "warning",
+            email_errors=email_errors
+        )
+
+    except Exception as e:
+        # EXPOSE ERROR FOR DEBUGGING
+        err_str = str(e)
+        trace = traceback.format_exc()
+        print(f"CRITICAL ASSIGN ERROR: {err_str}\n{trace}")
+        raise HTTPException(status_code=500, detail=f"DEBUG ERROR: {err_str} | TRACE: {trace[:200]}")
 
 @router.get("/my-pending/", response_model=List[schemas.AssessmentResponse])
 def get_my_pending_assessments(

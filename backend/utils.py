@@ -59,30 +59,30 @@ def send_email(to_email: str, subject: str, html_content: str):
         msg.attach(MIMEText(html_content, 'html'))
         text = msg.as_string()
 
-        # Strategy 1: TLS on 587 (Standard)
+        # Strategy 1: SSL upon connection (Port 465) - Preferred for Gmail/Render
         try:
-            print(f"Attempting SMTP via {host}:587 (TLS)...")
-            server = smtplib.SMTP(host, 587, timeout=10)
-            server.starttls()
+            print(f"Attempting SMTP_SSL via {host}:465...")
+            server = smtplib.SMTP_SSL(host, 465, timeout=15)
             server.login(user, password)
             server.sendmail(user, to_email, text)
             server.quit()
-            print(f"Email sent to {to_email} via TLS")
+            print(f"Email sent to {to_email} via SSL")
             return True
-        except Exception as e_tls:
-            print(f"TLS Failed ({e_tls}). Retrying with SSL on 465...")
-            
-            # Strategy 2: SSL on 465 (Fallback)
+        except Exception as e_ssl:
+            print(f"SSL Failed ({e_ssl}). Retrying with TLS on 587...")
+
+            # Strategy 2: TLS (Port 587) - Fallback
             try:
-                server = smtplib.SMTP_SSL(host, 465, timeout=10)
+                server = smtplib.SMTP(host, 587, timeout=15)
+                server.starttls()
                 server.login(user, password)
                 server.sendmail(user, to_email, text)
                 server.quit()
-                print(f"Email sent to {to_email} via SSL")
+                print(f"Email sent to {to_email} via TLS")
                 return True
-            except Exception as e_ssl:
-                print(f"SSL Failed ({e_ssl}). Email sending aborted.")
-                raise e_ssl
+            except Exception as e_tls:
+                print(f"TLS Failed ({e_tls}). Both strategies failed.")
+                raise e_tls
 
     except Exception as e:
         print(f"FINAL EMAIL FAILURE: {e}")
