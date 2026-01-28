@@ -80,6 +80,20 @@ def candidate_login(login_data: LoginSchema, db: Session = Depends(database.get_
          print("Shadow user missing!")
          raise HTTPException(status_code=401, detail="System configuration error. Please contact HR.")
 
+    # 4. CHECK SUBMISSION STATUS (Prevent Re-Login)
+    # Check if this user has any assessment marked as 'completed'
+    latest_assessment = db.query(models.Assessment)\
+        .filter(models.Assessment.user_id == shadow_user.id)\
+        .order_by(models.Assessment.created_at.desc())\
+        .first()
+        
+    if latest_assessment and latest_assessment.status == models.AssessmentStatus.completed:
+        print(f"Login Blocked: Assessment {latest_assessment.id} is already completed.")
+        raise HTTPException(
+            status_code=403, 
+            detail="You have already submitted this assessment. Access is revoked."
+        )
+
     access_token = utils.create_access_token(data={"sub": shadow_email})
     return {"access": access_token, "token_type": "bearer"}
 
