@@ -9,9 +9,8 @@ pydantic
 email-validator
 requests
 pymongo
-chromadb
-sentence-transformers
 pypdf
 gunicorn
 pymysql
 psycopg2-binary
+tenacity

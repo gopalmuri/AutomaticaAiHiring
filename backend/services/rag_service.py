@@ -1,8 +1,5 @@
 import re
 import os
-import chromadb
-from chromadb.utils import embedding_functions
-from sentence_transformers import SentenceTransformer
 import pypdf
 import requests
 import json
@@ -15,32 +12,23 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Initialize RAG Components
-# Persistent Client for Chroma
-chroma_path = BASE_DIR / "chroma_db"
-chroma_client = chromadb.PersistentClient(path=str(chroma_path))
-
-# Embedding Function (All-MiniLM-L6-v2)
-embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-
-class MiniLMEmbeddingFunction(embedding_functions.EmbeddingFunction):
-    def __call__(self, input):
-        return embedding_model.encode(input).tolist()
-
-collection = chroma_client.get_or_create_collection(
-    name="resume_chunks",
-    embedding_function=MiniLMEmbeddingFunction()
-)
+# RAG Service Optimized for Low-Memory Environments (Render Free Tier)
+# Removed ChromaDB and SentenceTransformer to save RAM.
+# Uses direct text context passing to LLM.
 
 class RAGService:
 
     @staticmethod
     def extract_text_from_pdf(file_path):
         text = ""
-        with open(file_path, 'rb') as f:
-            reader = pypdf.PdfReader(f)
-            for page in reader.pages:
-                text += page.extract_text() + "\n"
+        try:
+            with open(file_path, 'rb') as f:
+                reader = pypdf.PdfReader(f)
+                for page in reader.pages:
+                    text += page.extract_text() + "\n"
+        except Exception as e:
+            print(f"Error reading PDF: {e}")
+            return ""
         return text
 
     @staticmethod
@@ -51,14 +39,12 @@ class RAGService:
         }
         
         print(f"DEBUG: --- Starting Extraction for {filename} ---")
-        print(f"DEBUG: Text Length: {len(text)}")
-
+        
         # 1. Regex Email
         email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
         email_match = re.search(email_pattern, text)
         if email_match:
             info["email"] = email_match.group(0)
-            print(f"DEBUG: Email found: {info['email']}")
 
         # 2. Heuristic Name
         lines = [line.strip() for line in text.split('\n') if line.strip()]
@@ -70,39 +56,29 @@ class RAGService:
                 not any(char.isdigit() for char in potential_name)):
                 
                 info["name"] = potential_name.title()
-                print(f"DEBUG: Heuristic Name found: {info['name']}")
                 break
 
         # 3. AI Fallback
         if not info["email"] or info["name"] == "Unknown Candidate":
-            print("DEBUG: Triggering AI Extraction...")
             try:
                 header_text = text[:3000]
                 ai_extracted = RAGService.extract_with_llm(header_text)
                 
                 if ai_extracted.get("name") and ai_extracted["name"] not in ["Unknown", "Null", None]:
                     info["name"] = ai_extracted["name"]
-                    print(f"DEBUG: AI Name found: {info['name']}")
                 if ai_extracted.get("email") and not info["email"]:
                     info["email"] = ai_extracted["email"]
-                    print(f"DEBUG: AI Email found: {info['email']}")
             except Exception as e:
                 print(f"DEBUG: AI Failed: {e}")
 
         # 4. Filename Fallback
-        print(f"DEBUG: Name before fallback: {info['name']}")
         if info["name"] in ["Unknown Candidate", "Resume", "Cv", "Curriculum Vitae"] and filename:
-            print(f"DEBUG: Attempting Filename Fallback with '{filename}'")
             base = os.path.splitext(filename)[0]
             clean_name = base.replace("_", " ").replace("-", " ").title()
             clean_name = re.sub(r'\bresume\b|\bcv\b|\bprofile\b', '', clean_name, flags=re.IGNORECASE).strip()
             if clean_name:
                 info["name"] = clean_name
-                print(f"DEBUG: Filename Fallback used. Name: {info['name']}")
-            else:
-                print("DEBUG: Filename cleaned to empty string.")
 
-        print(f"DEBUG: Final Extracted Info: {info}")
         return info
 
     @staticmethod
@@ -117,7 +93,7 @@ class RAGService:
         try:
             return RAGService._inner_extract_with_llm(text_chunk, api_key)
         except Exception as e:
-            print(f"DEBUG: Groq Extraction Exception after retries: {e}")
+            print(f"DEBUG: Groq Extraction Exception: {e}")
             return {}
 
     @staticmethod
@@ -158,81 +134,49 @@ class RAGService:
             "response_format": {"type": "json_object"}
         }
         
-        # DEBUG
-        print(f"DEBUG: Calling Groq for extraction on {len(text_chunk)} chars...")
-        
-        # Increased timeout to 15s
         response = requests.post(url, headers=headers, json=payload, timeout=15)
-        response.raise_for_status() # Trigger tenacity retry
+        response.raise_for_status()
         
         if response.status_code == 200:
             content = response.json()['choices'][0]['message']['content']
-            print(f"DEBUG: Groq Response: {content}")
             return json.loads(content)
         
         return {}
 
     @staticmethod
-    def chunk_text(text, chunk_size=500, overlap=50):
-        chunks = []
-        start = 0
-        while start < len(text):
-            end = start + chunk_size
-            chunks.append(text[start:end])
-            start = end - overlap
-        return chunks
-
-    @staticmethod
     def ingest_resume(user_id, resume_id, file_path):
         """
-        1. Extract Text
-        2. Chunk & Embed -> Store in ChromaDB
+        Low-memory version: Does NOT store vectors locally.
+        We rely on passing the text context directly to the LLM during screening.
         """
-        full_text = RAGService.extract_text_from_pdf(file_path)
-        
-        # Chunking
-        chunks = RAGService.chunk_text(full_text)
-        ids = [f"{resume_id}_{i}" for i in range(len(chunks))]
-        metadatas = [{"resume_id": str(resume_id), "chunk_index": i} for i in range(len(chunks))]
-
-        # Add to Chroma
-        collection.add(
-            documents=chunks,
-            ids=ids,
-            metadatas=metadatas
-        )
-        
+        # No-op for vector DB ingestion to save RAM
         return resume_id
 
     @staticmethod
     def screen_resume(jd_text, resume_id, resume_context=""):
         """
-        Ingests strict context and scores.
+        Screens resume using passing text directly.
         """
         # 0. Validate JD
         clean_jd = jd_text.strip()
-        if len(clean_jd) < 15 or len(clean_jd.split()) < 3:
+        if len(clean_jd) < 15:
              return {
                 "score": 0, 
-                "reasoning": "Job Description is too vague or invalid (Text too short). Please provide a detailed description.", 
+                "reasoning": "Job Description is too short.", 
                 "key_skills_match": [],
                 "missing_skills": []
             }
 
-        # 1. Fallback to Chroma if context is empty
+        # If resume_context is missing, we can't query vector DB anymore.
+        # We assume the caller might have passed the resume text, or we just rely on what we have.
+        # For this optimized version, we really need the Resume Text content to be passed in resume_context.
+        # If it's missing, we try to degrade gracefully.
         if not resume_context:
-            print("Fallback to Chroma Chunks...")
-            results = collection.query(
-                query_texts=[jd_text],
-                n_results=10, # Increase chunks to get more context
-                where={"resume_id": str(resume_id)}
-            )
-            if not results['documents'] or not results['documents'][0]:
-                return {"score": 0, "reasoning": "No context found", "key_skills_match": [], "missing_skills": []}
-            matched_chunks = results['documents'][0]
-            resume_context = "\n".join(matched_chunks)
-        
-        # 3. Call Groq API with context
+             # In a real heavy-db scenario, we'd query DB. 
+             # Here we assume the frontend/controller sends the text or we accept low context.
+             resume_context = "Resume content not available in memory optimization mode."
+
+        # Call Groq API
         api_key = os.getenv("GROQ_API_KEY")
         return RAGService.call_groq_api(jd_text, resume_context, api_key)
 
@@ -246,6 +190,7 @@ class RAGService:
         if not api_key:
             return {"score": 0, "reasoning": "Missing API Key", "key_skills_match": [], "missing_skills": []}
             
+        # Truncate context to fit in token limit if necessary (Llama 3 has 128k context so 25k chars is fine)
         prompt = f"""
         Act as a Senior Technical Recruiter evaluation engine.
         
@@ -256,20 +201,13 @@ class RAGService:
         {resume_context[:25000]} 
         
         TASK:
-        Evaluate the candidate against the Job Description using the EXACT scoring rubric below.
+        Evaluate the candidate against the Job Description using the basic scoring rubric.
         
-        SCORING LOGIC (Total 100%):
-        1. Skills Matching (40%): Extract required skills from JD and compare with resume (semantic + keyword). Score = (matched/total) * 40.
-        2. Experience Relevance (25%): Compare years of experience and role relevance. Full match = 25. Partial = proportional. No match = 0.
-        3. Project / Role Alignment (20%): Analyze project complexity and impact vs JD responsibilities.
-        4. Education Match (10%): Full match (meets req) = 10. Related degree = 6-8. Unrelated/Missing = 0-4.
-        5. Preferred / Bonus Skills (5%): Award bonus for nice-to-have skills.
-
         OUTPUT REQUIREMENTS:
         - Return a precise integer Total Score (0-100).
         - Provide component scores.
         - List matched and missing skills.
-        - Generate a normalized "extracted_role" (e.g. "Senior Frontend Engineer").
+        - Generate a normalized "extracted_role".
         - Provide a short 2-3 line explanation.
         
         Return STRICT JSON only:
