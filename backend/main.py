@@ -30,17 +30,16 @@ models.Base.metadata.create_all(bind=database.engine)
 
 # CORS
 # CORS Configuration
-frontend_url = os.getenv("FRONTEND_URL", "https://automatica-ai-hiring.vercel.app")
+# Allow all Vercel subdomains + Localhost
 origins = [
     "http://localhost:5173",
     "http://localhost:5174",
-    frontend_url,
-    "https://automatica-ai-hiring.vercel.app" # Hardcoded fallback just in case
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",  # <--- Allows ANY Vercel URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
