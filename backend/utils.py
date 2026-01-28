@@ -74,7 +74,7 @@ def send_email(to_email: str, subject: str, html_content: str):
                 target_ip = host
 
             print(f"Attempting SMTP_SSL via {target_ip}:465...")
-            server = smtplib.SMTP_SSL(target_ip, 465, timeout=15)
+            server = smtplib.SMTP_SSL(target_ip, 465, timeout=60)
             server.login(user, password)
             server.sendmail(user, to_email, text)
             server.quit()
@@ -92,7 +92,7 @@ def send_email(to_email: str, subject: str, html_content: str):
                 except:
                     target_ip = host
                 
-                server = smtplib.SMTP(target_ip, 587, timeout=15)
+                server = smtplib.SMTP(target_ip, 587, timeout=60)
                 server.starttls()
                 server.login(user, password)
                 server.sendmail(user, to_email, text)
