@@ -13,3 +13,5 @@ chromadb
 sentence-transformers
 pypdf
 gunicorn
+pymysql
+psycopg2-binary
