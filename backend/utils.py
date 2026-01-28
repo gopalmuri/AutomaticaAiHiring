@@ -51,8 +51,39 @@ def send_email(to_email: str, subject: str, html_content: str):
         print("Email credentials not set. Skipping email.")
         return False
 
+    # Strategy 0: Resend API (HTTP on Port 443 - Works everywhere)
+    resend_key = os.getenv("RESEND_API_KEY")
+    if resend_key:
+        print("Using Resend API for email...")
+        import requests
+        try:
+            resp = requests.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {resend_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "from": "HiringAI <onboarding@resend.dev>", # Default testing sender
+                    "to": [to_email],
+                    "subject": subject,
+                    "html": html_content
+                },
+                timeout=10
+            )
+            if resp.status_code in [200, 201, 202]:
+                print(f"Email sent via Resend API! ID: {resp.json().get('id')}")
+                return True
+            else:
+                print(f"Resend API Failed: {resp.status_code} {resp.text}")
+                # Fallthrough to SMTP if Resend fails? Maybe.
+        except Exception as e_resend:
+            print(f"Resend Exception: {e_resend}")
+
+    # Fallback to SMTP (Likely to fail on Render Free Tier)
     try:
         msg = MIMEMultipart()
+
         msg['From'] = user
         msg['To'] = to_email
         msg['Subject'] = subject
