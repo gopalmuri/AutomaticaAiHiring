@@ -28,6 +28,22 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # Database Init
 models.Base.metadata.create_all(bind=database.engine)
 
+# Manual Migration for Schema Updates (Fixes 500 Error if columns missing)
+from sqlalchemy import text
+def run_manual_migrations():
+    try:
+        with database.engine.connect() as connection:
+            print("Running Schema Check/Update...")
+            connection.execute(text("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS role VARCHAR(100);"))
+            connection.execute(text("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS hashed_password VARCHAR(255);"))
+            connection.execute(text("ALTER TABLE assessments ADD COLUMN IF NOT EXISTS started_at TIMESTAMP WITH TIME ZONE;"))
+            connection.commit()
+            print("Schema Check Completed.")
+    except Exception as e:
+        print(f"Schema Update Warning (Safe to ignore if columns exist): {e}")
+
+run_manual_migrations()
+
 # CORS
 # Custom CORS Middleware to force headers
 @app.middleware("http")
