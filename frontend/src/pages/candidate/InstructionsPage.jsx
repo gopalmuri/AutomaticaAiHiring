@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckCircle, Clock, AlertTriangle, Play, FileText } from 'lucide-react';
+import API_URL from '../../apiConfig';
 
 const InstructionsPage = () => {
     const navigate = useNavigate();
