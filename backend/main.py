@@ -29,17 +29,43 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 models.Base.metadata.create_all(bind=database.engine)
 
 # CORS
-# CORS Configuration
-# Allow all Vercel subdomains + Localhost
-origins = [
-    "http://localhost:5173",
-    "http://localhost:5174",
-]
+# Custom CORS Middleware to force headers
+@app.middleware("http")
+async def add_cors_headers(request: Request, call_next):
+    origin = request.headers.get("origin")
+    
+    # Define allowed patterns
+    allowed = False
+    if origin:
+        if "localhost" in origin:
+            allowed = True
+        elif ".vercel.app" in origin and origin.startswith("https://"):
+            allowed = True
+    
+    # Handle Preflight OPTIONS request
+    if request.method == "OPTIONS":
+        response = JSONResponse(content="ok")
+        if allowed:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Methods"] = "*"
+            response.headers["Access-Control-Allow-Headers"] = "*"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
 
+    # Process actual request
+    response = await call_next(request)
+    
+    # Add Headers to Response
+    if allowed:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        
+    return response
+
+# Standard CORS backup (can keep or remove, keeping for safety but effectively overruled by above)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_origin_regex=r"https://.*\.vercel\.app",  # <--- Allows ANY Vercel URL
+    allow_origins=["*"], # We let manual middleware handle the restriction
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
