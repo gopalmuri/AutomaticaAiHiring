@@ -6,7 +6,7 @@ import useProctoring from '../../hooks/useProctoring';
 import API_URL from '../../apiConfig';
 
 // Vapi Keys
-const VAPI_PUBLIC_KEY = "77b5cfe7-c33a-45ad-b1cd-83d8d467a7ba";
+const VAPI_PUBLIC_KEY = "85876843-8675-47b9-b5bd-f4387a97473d";
 
 const VapiInterview = () => {
     const [status, setStatus] = useState("idle");
