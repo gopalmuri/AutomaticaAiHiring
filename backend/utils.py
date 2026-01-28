@@ -61,8 +61,20 @@ def send_email(to_email: str, subject: str, html_content: str):
 
         # Strategy 1: SSL upon connection (Port 465) - Preferred for Gmail/Render
         try:
-            print(f"Attempting SMTP_SSL via {host}:465...")
-            server = smtplib.SMTP_SSL(host, 465, timeout=15)
+            # FORCE IPv4 Resolution
+            # Render sometimes fails with IPv6 for Google SMTP
+            import socket
+            try:
+                # Get the first IPv4 address
+                ip_list = socket.getaddrinfo(host, 465, family=socket.AF_INET, proto=socket.IPPROTO_TCP)
+                target_ip = ip_list[0][4][0]
+                print(f"Resolved {host} to IPv4: {target_ip}")
+            except Exception as e_dns:
+                print(f"DNS Resolution failed: {e_dns}, falling back to hostname")
+                target_ip = host
+
+            print(f"Attempting SMTP_SSL via {target_ip}:465...")
+            server = smtplib.SMTP_SSL(target_ip, 465, timeout=15)
             server.login(user, password)
             server.sendmail(user, to_email, text)
             server.quit()
@@ -73,7 +85,14 @@ def send_email(to_email: str, subject: str, html_content: str):
 
             # Strategy 2: TLS (Port 587) - Fallback
             try:
-                server = smtplib.SMTP(host, 587, timeout=15)
+                # Resolve IP for 587 too
+                try:
+                    ip_list = socket.getaddrinfo(host, 587, family=socket.AF_INET, proto=socket.IPPROTO_TCP)
+                    target_ip = ip_list[0][4][0]
+                except:
+                    target_ip = host
+                
+                server = smtplib.SMTP(target_ip, 587, timeout=15)
                 server.starttls()
                 server.login(user, password)
                 server.sendmail(user, to_email, text)
