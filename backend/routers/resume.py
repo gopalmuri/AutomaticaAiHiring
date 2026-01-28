@@ -217,7 +217,7 @@ def screen_resume(
             db.refresh(candidate)
             
             # Log
-            log = models.ActivityLog(user_id=1, action="screened", target=candidate.name, details=f"Score: {score}/100")
+            log = models.ActivityLog(user_id=None, action="screened", target=candidate.name, details=f"Score: {score}/100")
             db.add(log)
         else:
             print(f"DEBUG: Found EXISTING candidate: {candidate.name}")
@@ -242,7 +242,7 @@ def screen_resume(
             candidate.full_text = data["full_text"] # Update text too
             candidate.status = models.CandidateStatus.Applied # Reset to valid status
             candidate.stage = models.CandidateStage.Resume_Screening
-            log = models.ActivityLog(user_id=1, action="re-screened", target=candidate.name, details=f"Score: {score}/100")
+            log = models.ActivityLog(user_id=None, action="re-screened", target=candidate.name, details=f"Score: {score}/100")
             db.add(log)
         db.commit()
         print("DEBUG: DB Commit Successful")
@@ -293,7 +293,7 @@ def create_candidate_manual(
     
     # Log activity
     log = models.ActivityLog(
-        user_id=1,
+        user_id=None,
         action="manually added",
         target=new_candidate.name,
         details=f"Role: {new_candidate.role}"
@@ -350,7 +350,7 @@ def update_candidate(
     
     # Log the action
     log = models.ActivityLog(
-        user_id=1,
+        user_id=None,
         action="promoted",
         target=candidate.name,
         details=f"Moved to {candidate.stage}"
@@ -454,7 +454,7 @@ def bulk_update_candidates(
                     candidate.analysis_data = new_data
             
             has_changed = True
-            log = models.ActivityLog(user_id=1, action="promoted (bulk)", target=candidate.name, details=f"Moved from {old_stage} to {candidate.stage}")
+            log = models.ActivityLog(user_id=None, action="promoted (bulk)", target=candidate.name, details=f"Moved from {old_stage} to {candidate.stage}")
             db.add(log)
 
         # 2. Status Update
