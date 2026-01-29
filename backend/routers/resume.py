@@ -6,7 +6,8 @@ import os
 from datetime import datetime, timedelta
 import schemas, models, database
 from services.rag_service import RAGService
-# from .auth import get_current_user # Optional if public or protected
+from sqlalchemy import or_
+from routers.auth import get_current_user
 
 router = APIRouter(
     prefix="/api/resume",
@@ -75,7 +76,8 @@ def process_single_resume(file_path: str, filename: str, job_description: str, u
 def screen_resume(
     files: List[UploadFile] = File(...),
     job_description: Optional[str] = Form(None),
-    db: Session = Depends(database.get_db)
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
     start_total = time.time()
     print(f"--- START PARALLEL SCREENING: {len(files)} files ---")
@@ -210,7 +212,8 @@ def screen_resume(
                 resume_file=data["file"],
                 full_text=data["full_text"], # Save to SQL
                 score=score,
-                analysis_data=data["analysis"]
+                analysis_data=data["analysis"],
+                owner_id=current_user.id
             )
             db.add(candidate)
             db.commit() 
@@ -220,6 +223,16 @@ def screen_resume(
             log = models.ActivityLog(user_id=None, action="screened", target=candidate.name, details=f"Score: {score}/100")
             db.add(log)
         else:
+            # Check Ownership - If owned by another admin, warn/skip update?
+            # We allow VIEWING shared candidates (maybe) but UPDATING might overwrite work?
+            # If candidate.owner_id != current_user.id and candidate.owner_id is not None:
+            #    data["error"] = "Candidate managed by another admin."
+            #    results.append(data)
+            #    continue
+            # For now, allow update (Shared Pool logic) or claim if none?
+            if candidate.owner_id is None:
+                candidate.owner_id = current_user.id
+            
             print(f"DEBUG: Found EXISTING candidate: {candidate.name}")
             # FIX: Aggressively update metadata if we found better info
             # This fixes "Unknown Candidate" persistence
@@ -270,7 +283,8 @@ def screen_resume(
 @router.post("/candidates/", response_model=schemas.CandidateResponse)
 def create_candidate_manual(
     candidate_in: schemas.CandidateCreate,
-    db: Session = Depends(database.get_db)
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
     # Check if candidate already exists
     existing = db.query(models.Candidate).filter(models.Candidate.email == candidate_in.email).first()
@@ -284,7 +298,8 @@ def create_candidate_manual(
         stage=candidate_in.stage,
         status=candidate_in.status,
         score=0.0,
-        analysis_data={"reasoning": "Manually added candidate."}
+        analysis_data={"reasoning": "Manually added candidate."},
+        owner_id=current_user.id
     )
     
     db.add(new_candidate)
@@ -308,9 +323,13 @@ def get_candidates(
     stage: Optional[str] = None,
     status: Optional[str] = None,
     role: Optional[str] = None,
-    db: Session = Depends(database.get_db)
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
-    query = db.query(models.Candidate)
+    # Filter by Ownership (Allow viewing Own OR Unowned)
+    query = db.query(models.Candidate).filter(
+        or_(models.Candidate.owner_id == current_user.id, models.Candidate.owner_id == None)
+    )
     if stage:
         query = query.filter(models.Candidate.stage == stage)
     if status:
@@ -321,13 +340,14 @@ def get_candidates(
     return query.order_by(models.Candidate.created_at.desc()).all()
 
 @router.get("/active-roles/", response_model=List[str])
-def get_active_roles(db: Session = Depends(database.get_db)):
+def get_active_roles(db: Session = Depends(database.get_db), current_user: models.User = Depends(get_current_user)):
     """
-    Fetch distinct, non-null job roles from candidates to populate frontend dropdowns.
+    Fetch distinct, non-null job roles from My candidates to populate dropdowns.
     """
     roles = db.query(models.Candidate.role).distinct().filter(
         models.Candidate.role != None,
-        models.Candidate.role != ""
+        models.Candidate.role != "",
+        or_(models.Candidate.owner_id == current_user.id, models.Candidate.owner_id == None)
     ).all()
     # Flatten tuple result [('Role A',), ('Role B',)] -> ['Role A', 'Role B']
     return sorted([r[0] for r in roles if r[0]])
@@ -377,9 +397,13 @@ def delete_candidate(
 @router.post("/candidates/bulk-update/", response_model=Dict[str, Any])
 def bulk_update_candidates(
     payload: schemas.BulkCandidateUpdate,
-    db: Session = Depends(database.get_db)
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
-    candidates = db.query(models.Candidate).filter(models.Candidate.id.in_(payload.candidate_ids)).all()
+    candidates = db.query(models.Candidate).filter(
+        models.Candidate.id.in_(payload.candidate_ids),
+        or_(models.Candidate.owner_id == current_user.id, models.Candidate.owner_id == None)
+    ).all()
     
     if not candidates:
         raise HTTPException(status_code=404, detail="No candidates found with provided IDs")
@@ -497,8 +521,10 @@ def bulk_update_candidates(
     }
 
 @router.get("/stats/", response_model=schemas.StatsResponse)
-def get_stats(days: Optional[str] = None, db: Session = Depends(database.get_db)):
-    query = db.query(models.Candidate)
+def get_stats(days: Optional[str] = None, db: Session = Depends(database.get_db), current_user: models.User = Depends(get_current_user)):
+    query = db.query(models.Candidate).filter(
+        or_(models.Candidate.owner_id == current_user.id, models.Candidate.owner_id == None)
+    )
     
     if days and days != 'all':
         try:

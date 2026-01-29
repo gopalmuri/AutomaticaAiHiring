@@ -37,6 +37,12 @@ def run_manual_migrations():
             connection.execute(text("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS role VARCHAR(100);"))
             connection.execute(text("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS hashed_password VARCHAR(255);"))
             connection.execute(text("ALTER TABLE assessments ADD COLUMN IF NOT EXISTS started_at TIMESTAMP WITH TIME ZONE;"))
+            # Multi-Tenancy Column
+            try:
+                connection.execute(text("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS owner_id INTEGER;"))
+            except Exception:
+                # Fallback for DBs not supporting IF NOT EXISTS or failed constraint
+                pass
             connection.commit()
             print("Schema Check Completed.")
     except Exception as e:

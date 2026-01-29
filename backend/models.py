@@ -81,6 +81,7 @@ class Candidate(Base):
     email = Column(String(150), unique=True, index=True)
     role = Column(String(100))
     status = Column(String(50), default=CandidateStatus.Applied)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True) # Linked to the Admin/HR who added them
     stage = Column(String(50), default=CandidateStage.Resume_Screening)
     resume_file = Column(String(255), nullable=True) # File path
     full_text = Column(Text, nullable=True) # Full resume text for screening
