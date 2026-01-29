@@ -233,6 +233,14 @@ const ResumeScreening = () => {
                     body: formData
                 });
 
+                if (response.status === 401) {
+                    alert("Session expired. Please log in again.");
+                    localStorage.removeItem('token');
+                    window.location.href = '/portal/login';
+                    setIsScreening(false);
+                    return;
+                }
+
                 if (response.ok) {
                     setProcessingStage('scoring');
                     await new Promise(r => setTimeout(r, 400));
@@ -260,6 +268,8 @@ const ResumeScreening = () => {
                     }
                 } else {
                     console.error("Failed to screen", file.name);
+                    const errorMsg = await response.text();
+                    console.error("Server Error Detail:", errorMsg);
                 }
             } catch (err) {
                 console.error("Network error for", file.name, err);

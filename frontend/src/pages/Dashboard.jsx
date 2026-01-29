@@ -19,6 +19,12 @@ const Dashboard = () => {
 
             // 1. Fetch Stats for Top Cards
             const statsRes = await fetch(`${API_URL}/api/resume/stats/`, { headers, cache: 'no-store' });
+            if (statsRes.status === 401) {
+                alert("Session expired. Please log in again.");
+                localStorage.removeItem('token');
+                window.location.href = '/portal/login';
+                return;
+            }
             if (statsRes.ok) {
                 const data = await statsRes.json();
                 setStats(data);
