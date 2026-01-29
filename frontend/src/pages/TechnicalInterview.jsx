@@ -55,7 +55,7 @@ const TechnicalInterview = () => {
 
     const executePromote = async (candidateIds) => {
         try {
-            const res = await fetch('http://127.0.0.1:8000/api/resume/candidates/bulk-update/', {
+            const res = await fetch(`${API_URL}/api/resume/candidates/bulk-update/`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -104,7 +104,7 @@ const TechnicalInterview = () => {
 
     const executeReleaseOffer = async (candidateIds) => {
         try {
-            const res = await fetch('http://127.0.0.1:8000/api/resume/candidates/bulk-update/', {
+            const res = await fetch(`${API_URL}/api/resume/candidates/bulk-update/`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

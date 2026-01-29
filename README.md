@@ -4,6 +4,15 @@
 
 Developed by **Gopal Muri**, this project eliminates recruitment bottlenecks using advanced AI, vector search, and real-time voice technology.
 
+
+---
+
+## 🚀 Live Demo
+
+- **Frontend (Application)**: [https://automatica-ai-hiring.vercel.app](https://automatica-ai-hiring.vercel.app)
+- **Backend (API)**: [https://automaticaaihiring.onrender.com](https://automaticaaihiring.onrender.com)
+- **API Documentation**: [https://automaticaaihiring.onrender.com/docs](https://automaticaaihiring.onrender.com/docs)
+
 ---
 
 ## 🌟 Key Features
